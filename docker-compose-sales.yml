@@ -1,0 +1,84 @@
+version: "3.9"
+
+# Enterprise Sales LLM — Docker Compose
+# Supports GPU and CPU-fallback deployment modes.
+# Usage (GPU):
+#   docker compose -f docker-compose-sales.yml up -d
+# Usage (CPU only):
+#   SALES_LLM_GPU_ENABLED=false docker compose -f docker-compose-sales.yml up -d
+
+services:
+  sales-llm:
+    image: h2oai/h2ogpt:latest
+    restart: always
+    shm_size: "4gb"
+    ports:
+      - "${SALES_LLM_API_PORT:-8090}:${SALES_LLM_API_PORT:-8090}"
+    environment:
+      - SALES_LLM_BASE_MODEL=${SALES_LLM_BASE_MODEL:-meta-llama/Llama-3.3-70B-Instruct}
+      - SALES_LLM_CONTEXT_LENGTH=${SALES_LLM_CONTEXT_LENGTH:-131072}
+      - SALES_LLM_STREAMING=${SALES_LLM_STREAMING:-true}
+      - SALES_LLM_GPU_ENABLED=${SALES_LLM_GPU_ENABLED:-true}
+      - SALES_LLM_DEPLOYMENT_MODE=${SALES_LLM_DEPLOYMENT_MODE:-docker}
+      - SALES_LLM_API_PORT=${SALES_LLM_API_PORT:-8090}
+      - SALES_MEMORY_URL=redis://redis:6379/0
+      - CHROMA_HOST=chromadb
+      - CHROMA_PORT=8000
+    volumes:
+      - sales-llm-cache:/workspace/.cache
+      - sales-llm-save:/workspace/save
+      - ./data:/workspace/data:ro
+    depends_on:
+      - chromadb
+      - redis
+    deploy:
+      resources:
+        reservations:
+          devices:
+          - driver: nvidia
+            count: all
+            capabilities: [gpu]
+
+  # CPU-only override (comment out the GPU deploy section above and use this)
+  # sales-llm-cpu:
+  #   extends:
+  #     service: sales-llm
+  #   deploy: {}
+
+  chromadb:
+    image: chromadb/chroma:latest
+    restart: always
+    ports:
+      - "8000:8000"
+    volumes:
+      - chroma-data:/chroma/chroma
+    environment:
+      - IS_PERSISTENT=TRUE
+      - PERSIST_DIRECTORY=/chroma/chroma
+
+  redis:
+    image: redis:7-alpine
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --save 60 1 --loglevel warning
+
+  nginx:
+    image: nginx:stable-alpine
+    restart: always
+    ports:
+      - "443:443"
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+    depends_on:
+      - sales-llm
+
+volumes:
+  sales-llm-cache:
+  sales-llm-save:
+  chroma-data:
+  redis-data:
