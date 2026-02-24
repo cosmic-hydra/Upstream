@@ -276,7 +276,7 @@ class EmailExtractor(BaseExtractor):
                 body = payload.decode(charset, errors="replace")
 
         content = f"From: {sender}\nDate: {date}\nSubject: {subject}\n\n{body}"
-        doc_id = hashlib.md5(content.encode()).hexdigest()  # noqa: S324 – not cryptographic
+        doc_id = hashlib.sha256(content.encode()).hexdigest()[:32]
         return Document(
             doc_id=doc_id,
             source=source_label,

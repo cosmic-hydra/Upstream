@@ -221,23 +221,42 @@ class RBACManager:
             )
 
     def verify_password(self, user_id: str, password: str) -> bool:
-        """Return True if *password* matches the stored hash for *user_id*."""
+        """Return True if *password* matches the stored scrypt hash for *user_id*."""
         user = self.get_user(user_id)
         if user is None or not user._password_hash:
             return False
         parts = user._password_hash.split(":", 1)
         if len(parts) != 2:
             return False
-        salt, stored_digest = parts
-        digest = hashlib.sha256(f"{salt}{password}".encode()).hexdigest()
+        salt_hex, stored_digest = parts
+        salt = bytes.fromhex(salt_hex)
+        digest = hashlib.scrypt(
+            password.encode(),
+            salt=salt,
+            n=2**14,
+            r=8,
+            p=1,
+            dklen=32,
+        ).hex()
         return hmac.compare_digest(stored_digest, digest)
 
     @staticmethod
     def _hash_password(password: str) -> str:
-        """SHA-256 hash with a random salt stored as hex."""
-        salt = secrets.token_hex(16)
-        digest = hashlib.sha256(f"{salt}{password}".encode()).hexdigest()
-        return f"{salt}:{digest}"
+        """scrypt-based password hash with a random salt stored as hex.
+
+        Uses hashlib.scrypt (standard library, memory-hard) for strong
+        resistance against brute-force and GPU attacks.
+        """
+        salt = secrets.token_bytes(16)
+        digest = hashlib.scrypt(
+            password.encode(),
+            salt=salt,
+            n=2**14,   # CPU/memory cost (lowered for reasonable latency)
+            r=8,
+            p=1,
+            dklen=32,
+        ).hex()
+        return f"{salt.hex()}:{digest}"
 
     def assign_role(self, user_id: str, role_name: str) -> None:
         """Re-assign the role for an existing user."""
